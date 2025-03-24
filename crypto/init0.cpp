@@ -401,21 +401,7 @@ void encrypt_file(const std::string& input_file, const std::string& output_file)
     std::ofstream out(output_file, std::ios::binary);
     if (!out) {
         throw std::runtime_error("Failed to open output file for writing.");
-
-// Decrypt a file
-std::string decrypt_file(const std::string& input_file) {
-    // Read the encrypted file content
-    std::ifstream in(input_file, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("Failed to open input file for reading.");
     }
-
-    std::vector<unsigned char> encrypted_data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    in.close();
-
-    // Decrypt the data using the existing decrypt function
-    return decrypt(encrypted_data);
-}
     out.write(reinterpret_cast<const char*>(encrypted_data.data()), encrypted_data.size());
     out.close();
 }
@@ -432,5 +418,6 @@ std::string decrypt_file(const std::string& input_file) {
     in.close();
 
     // Decrypt the data using the existing decrypt function
-    return decrypt(encrypted_data);
+    E2EESecurity security;
+    return security.decrypt(encrypted_data);
 }
