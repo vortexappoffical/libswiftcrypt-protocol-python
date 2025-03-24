@@ -21,6 +21,7 @@
 #include <zlib.h>
 #include <json/json.h>
 #include <fstream>
+#include <windows.h>
 
 // Constants
 const int AES_KEY_SIZE = 32; // 256-bit
