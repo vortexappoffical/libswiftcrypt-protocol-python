@@ -421,3 +421,39 @@ std::string decrypt_file(const std::string& input_file) {
     E2EESecurity security;
     return security.decrypt(encrypted_data);
 }
+
+// Entry point
+int main(int argc, char* argv[]) {
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <encrypt/decrypt> <input_file> <output_file>" << std::endl;
+        return 1;
+    }
+
+    std::string operation = argv[1];
+    std::string input_file = argv[2];
+    std::string output_file = argv[3];
+
+    try {
+        if (operation == "encrypt") {
+            encrypt_file(input_file, output_file);
+            std::cout << "File encrypted successfully." << std::endl;
+        } else if (operation == "decrypt") {
+            std::string decrypted_content = decrypt_file(input_file);
+            std::ofstream out(output_file, std::ios::binary);
+            if (!out) {
+                throw std::runtime_error("Failed to open output file for writing.");
+            }
+            out.write(decrypted_content.c_str(), decrypted_content.size());
+            out.close();
+            std::cout << "File decrypted successfully." << std::endl;
+        } else {
+            std::cerr << "Invalid operation. Use 'encrypt' or 'decrypt'." << std::endl;
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
