@@ -2,7 +2,6 @@ import os
 import time
 import struct
 import hashlib
-import base64
 import json
 from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
 from cryptography.hazmat.primitives import serialization, hashes
@@ -61,8 +60,7 @@ class main:
         self.aes_key = key_material[:AES_KEY_SIZE]
         self.hmac_key = key_material[AES_KEY_SIZE:]
 
-        # Return base64 encoded AES key
-        return base64.b64encode(self.aes_key).decode()
+        return self.aes_key  # Return the AES key directly
 
     def sign_message(self, message):
         """Sign the message using RSA to provide authenticity."""
@@ -71,13 +69,13 @@ class main:
             padding.PSS(mgf=padding.MGF1(algorithm=hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
             hashes.SHA256()
         )
-        return base64.b64encode(signature).decode()
+        return signature  # Return the raw signature
 
     def verify_signature(self, message, signature):
         """Verify the signature of a message using RSA."""
         try:
             self.rsa_public_key.verify(
-                base64.b64decode(signature),
+                signature,
                 message.encode(),
                 padding.PSS(mgf=padding.MGF1(algorithm=hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
                 hashes.SHA256()
@@ -102,17 +100,16 @@ class main:
         # Include timestamp for replay protection
         timestamp = struct.pack(">Q", int(time.time()))
 
-        return base64.b64encode(nonce + encryptor.tag + timestamp + mac + ciphertext).decode()
+        # Return the encrypted data as raw bytes
+        return nonce + encryptor.tag + timestamp + mac + ciphertext
 
     def decrypt(self, encrypted_data):
         """Decrypts data, decompress and verifies integrity & freshness."""
-        data = base64.b64decode(encrypted_data)
-
-        nonce = data[:NONCE_SIZE]
-        tag = data[NONCE_SIZE:NONCE_SIZE+16]
-        timestamp = struct.unpack(">Q", data[NONCE_SIZE+16:NONCE_SIZE+24])[0]
-        mac = data[NONCE_SIZE+24:NONCE_SIZE+56]
-        ciphertext = data[NONCE_SIZE+56:]
+        nonce = encrypted_data[:NONCE_SIZE]
+        tag = encrypted_data[NONCE_SIZE:NONCE_SIZE+16]
+        timestamp = struct.unpack(">Q", encrypted_data[NONCE_SIZE+16:NONCE_SIZE+24])[0]
+        mac = encrypted_data[NONCE_SIZE+24:NONCE_SIZE+56]
+        ciphertext = encrypted_data[NONCE_SIZE+56:]
 
         # Replay protection: check timestamp
         if abs(time.time() - timestamp) > TIMESTAMP_TOLERANCE:
@@ -137,16 +134,16 @@ class main:
             self.aes_key,
             padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
         )
-        return base64.b64encode(encrypted_key).decode()
+        return encrypted_key  # Return the encrypted key as raw bytes
 
     def decrypt_symmetric_key(self, encrypted_key):
         """Decrypt AES key using RSA-4096."""
         decrypted_key = self.rsa_private_key.decrypt(
-            base64.b64decode(encrypted_key),
+            encrypted_key,
             padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
         )
         self.aes_key = decrypted_key
-        return base64.b64encode(self.aes_key).decode()
+        return self.aes_key  # Return the decrypted key directly
 
     def encrypt_metadata(self, metadata):
         """Encrypts metadata (IP, port, etc.)."""
@@ -154,11 +151,10 @@ class main:
         cipher = Cipher(algorithms.AES(self.aes_key), modes.GCM(os.urandom(NONCE_SIZE)))
         encryptor = cipher.encryptor()
         encrypted_metadata = encryptor.update(metadata_json) + encryptor.finalize()
-        return base64.b64encode(encrypted_metadata).decode()
+        return encrypted_metadata  # Return the encrypted metadata as raw bytes
 
     def decrypt_metadata(self, encrypted_metadata):
         """Decrypts metadata."""
-        encrypted_metadata = base64.b64decode(encrypted_metadata)
         cipher = Cipher(algorithms.AES(self.aes_key), modes.GCM(os.urandom(NONCE_SIZE)))
         decryptor = cipher.decryptor()
         return json.loads(decryptor.update(encrypted_metadata) + decryptor.finalize())
