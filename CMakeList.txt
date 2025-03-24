@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.10)
+project(dump0xd0)
+
+# Nastav C++ standard
+set(CMAKE_CXX_STANDARD 11)
+
+# Cesty k hlavičkovým souborům
+include_directories(${CMAKE_SOURCE_DIR}/include)
+
+# Seznam souborů pro kompilaci
+set(SOURCE_FILES
+    src/crypto.cpp
+)
+
+# Najdi závislosti
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(jsoncpp REQUIRED)
+
+# Vytvoření knihovny a přidání závislostí
+add_library(dump0xd0 SHARED ${SOURCE_FILES})
+
+# Připojení závislostí
+target_link_libraries(dump0xd0 
+    OpenSSL::Crypto
+    ZLIB::ZLIB
+    jsoncpp_lib
+)
