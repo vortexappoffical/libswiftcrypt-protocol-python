@@ -119,7 +119,7 @@ public:
         return aes_key; // Return the AES key directly
     }
 
-    std::vector<unsigned char> E2EESecurity::sign_message(const std::string& message) {
+     std::vector<unsigned char> sign_message(const std::string& message) {
     // Sign the message using RSA to provide authenticity
     std::vector<unsigned char> message_bytes(message.begin(), message.end());
     std::vector<unsigned char> signature(EVP_PKEY_size(rsa_private_key));
