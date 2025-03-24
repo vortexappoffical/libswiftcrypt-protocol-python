@@ -126,6 +126,7 @@ public:
 
         EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
         EVP_PKEY_CTX* pctx = NULL;
+        unsigned int sig_len;  // Declare sig_len variable
         EVP_DigestSignInit(mdctx, &pctx, EVP_sha256(), NULL, rsa_private_key);
         EVP_DigestSign(mdctx, signature.data(), &sig_len, message_bytes.data(), message_bytes.size());
         EVP_MD_CTX_free(mdctx);
