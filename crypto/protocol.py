@@ -1,17 +1,20 @@
-from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import scrypt
-from Crypto.PublicKey import RSA
-from Crypto.PublicKey import ECC
-from Crypto.Cipher import PKCS1_OAEP
-from Crypto.Signature import DSS
-from Crypto.Hash import SHA256, HMAC
 import os
-import socket
+import hashlib
+import hmac
 import base64
+import sqlite3
+from Cryptodome.Cipher import AES
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Random import get_random_bytes
+from Cryptodome.Signature import pkcs1_15
+from Cryptodome.Hash import SHA256
+from Cryptodome.Protocol.KDF import PBKDF2
+from Cryptodome.PublicKey import ECC
+from Cryptodome.Signature import DSS
 
-# Key derivation function
-def derive_key(password, salt):
-    return scrypt(password, salt, key_len=32, N=2**20, r=8, p=1)
+# Key derivation function using SHA-256
+def derive_key(password, salt, iterations=100000):
+    return PBKDF2(password, salt, dkLen=32, count=iterations, hmac_hash_module=SHA256)
 
 # RSA key generation
 def generate_rsa_keypair():
@@ -20,75 +23,95 @@ def generate_rsa_keypair():
     public_key = key.publickey().export_key()
     return private_key, public_key
 
-# ECC key generation
-def generate_ecc_keypair():
+# ECDH key exchange
+def generate_ecdh_keypair():
     key = ECC.generate(curve='P-256')
-    private_key = key.export_key(format='DER')
-    public_key = key.public_key().export_key(format='DER')
+    private_key = key.export_key(format='PEM')
+    public_key = key.public_key().export_key(format='PEM')
     return private_key, public_key
 
-# AES encryption
-def aes_encrypt(key, data):
-    cipher = AES.new(key, AES.MODE_CBC)
-    ct_bytes = cipher.encrypt(pad(data.encode(), AES.block_size))
-    iv = base64.b64encode(cipher.iv).decode('utf-8')
-    ct = base64.b64encode(ct_bytes).decode('utf-8')
-    return iv, ct
+def derive_shared_key(private_key_pem, peer_public_key_pem):
+    private_key = ECC.import_key(private_key_pem)
+    peer_public_key = ECC.import_key(peer_public_key_pem)
+    shared_key = private_key.d * peer_public_key.pointQ
+    return int.to_bytes(shared_key.x, length=32, byteorder='big')
 
-# AES decryption
-def aes_decrypt(key, iv, ct):
-    iv = base64.b64decode(iv)
-    ct = base64.b64decode(ct)
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    pt = unpad(cipher.decrypt(ct), AES.block_size)
-    return pt.decode('utf-8')
+# AES encryption (AES-256-CBC)
+def aes_encrypt_cbc(key, data):
+    cipher = AES.new(key, AES.MODE_CBC)
+    iv = cipher.iv
+    ciphertext = cipher.encrypt(pad(data))
+    return base64.b64encode(iv + ciphertext).decode('utf-8')
+
+def aes_decrypt_cbc(key, data):
+    data = base64.b64decode(data)
+    iv = data[:16]
+    ciphertext = data[16:]
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    return unpad(cipher.decrypt(ciphertext))
+
+# AES encryption (AES-256-CTR)
+def aes_encrypt_ctr(key, data):
+    cipher = AES.new(key, AES.MODE_CTR)
+    nonce = cipher.nonce
+    ciphertext = cipher.encrypt(data)
+    return base64.b64encode(nonce + ciphertext).decode('utf-8')
+
+def aes_decrypt_ctr(key, data):
+    data = base64.b64decode(data)
+    nonce = data[:8]
+    ciphertext = data[8:]
+    cipher = AES.new(key, AES.MODE_CTR, nonce=nonce)
+    return cipher.decrypt(ciphertext)
+
+# Padding for AES (PKCS7)
+def pad(data):
+    length = 16 - (len(data) % 16)
+    return data + bytes([length]) * length
+
+def unpad(data):
+    return data[:-data[-1]]
 
 # Message signing
-def sign_message(private_key, message):
-    h = SHA256.new(message.encode())
-    signer = DSS.new(private_key, 'fips-186-3')
-    signature = signer.sign(h)
+def sign_message(private_key_pem, message):
+    private_key = RSA.import_key(private_key_pem)
+    h = SHA256.new(message)
+    signature = pkcs1_15.new(private_key).sign(h)
     return base64.b64encode(signature).decode('utf-8')
 
-# Message verification
-def verify_message(public_key, message, signature):
-    h = SHA256.new(message.encode())
-    verifier = DSS.new(public_key, 'fips-186-3')
+def verify_message(public_key_pem, message, signature):
+    public_key = RSA.import_key(public_key_pem)
+    h = SHA256.new(message)
+    signature = base64.b64decode(signature)
     try:
-        verifier.verify(h, base64.b64decode(signature))
+        pkcs1_15.new(public_key).verify(h, signature)
         return True
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
-# Generate HMAC
-def generate_hmac(key, message):
-    h = HMAC.new(key, digestmod=SHA256)
-    h.update(message.encode())
-    return h.hexdigest()
+# Message authentication code (HMAC)
+def generate_mac(key, message):
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
 
-# Verify HMAC
-def verify_hmac(key, message, hmac_value):
-    h = HMAC.new(key, digestmod=SHA256)
-    h.update(message.encode())
-    try:
-        h.hexverify(hmac_value)
-        return True
-    except ValueError:
-        return False
+def verify_mac(key, message, mac):
+    return hmac.compare_digest(mac, generate_mac(key, message))
 
-# ECDH key exchange
-def ecdh_key_exchange(private_key, peer_public_key):
-    private_key = ECC.import_key(private_key)
-    peer_public_key = ECC.import_key(peer_public_key)
-    shared_secret = private_key.pointQ * peer_public_key.pointQ
-    return SHA256.new(shared_secret.export_key(format='DER')).digest()
+# Replay attack protection (using message ID and timestamp)
+def generate_message_id():
+    return base64.b64encode(get_random_bytes(16)).decode('utf-8')
 
-# Padding for AES
-def pad(data, block_size):
-    padding = block_size - len(data) % block_size
-    return data + (chr(padding) * padding).encode()
+def store_message_id(message_id, timestamp):
+    conn = sqlite3.connect('message_ids.db')
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS message_ids (id TEXT PRIMARY KEY, timestamp INTEGER)")
+    cursor.execute("INSERT INTO message_ids (id, timestamp) VALUES (?, ?)", (message_id, timestamp))
+    conn.commit()
+    conn.close()
 
-# Unpadding for AES
-def unpad(data, block_size):
-    padding = data[-1]
-    return data[:-padding]
+def check_message_id(message_id):
+    conn = sqlite3.connect('message_ids.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM message_ids WHERE id = ?", (message_id,))
+    exists = cursor.fetchone() is not None
+    conn.close()
+    return exists
