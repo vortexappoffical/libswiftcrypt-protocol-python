@@ -2,7 +2,7 @@ from setuptools import setup, Extension
 import os
 
 # Define the OpenSSL library and include directories
-openssl_include_dir = r'C:\openssl\include\'  # Update this path
+openssl_include_dir = r'C:\openssl\include'  # Update this path
 openssl_lib_dir = r'C:\openssl\lib'  # Update this path
 
 # Define the C extension
