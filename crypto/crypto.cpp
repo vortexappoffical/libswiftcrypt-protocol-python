@@ -37,18 +37,21 @@ public:
         ERR_load_crypto_strings();
 
         // Generate long-term RSA keys
-        rsa_private_key = RSA_new();
-        BIGNUM* bne = BN_new();
-        BN_set_word(bne, RSA_F4);
-        RSA_generate_key_ex(rsa_private_key, RSA_KEY_SIZE, bne, NULL);
-        rsa_public_key = RSAPublicKey_dup(rsa_private_key);
-        BN_free(bne);
+        rsa_private_key = EVP_PKEY_new();
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+        EVP_PKEY_keygen_init(ctx);
+        EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, RSA_KEY_SIZE);
+        EVP_PKEY_keygen(ctx, &rsa_private_key);
+
+        rsa_public_key = EVP_PKEY_new();
+        EVP_PKEY_copy_parameters(rsa_public_key, rsa_private_key);
+        EVP_PKEY_CTX_free(ctx);
     }
 
     ~E2EESecurity() {
         // Cleanup OpenSSL
-        RSA_free(rsa_private_key);
-        RSA_free(rsa_public_key);
+        EVP_PKEY_free(rsa_private_key);
+        EVP_PKEY_free(rsa_public_key);
         EVP_PKEY_free(ephemeral_ecdh_private_key);
         EVP_PKEY_free(ephemeral_ecdh_public_key);
         ERR_free_strings();
@@ -88,7 +91,7 @@ public:
         EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(ephemeral_ecdh_private_key, NULL);
         EVP_PKEY_derive_init(ctx);
         EVP_PKEY_derive_set_peer(ctx, peer_public_key);
-        
+
         size_t shared_secret_len;
         EVP_PKEY_derive(ctx, NULL, &shared_secret_len);
         std::vector<unsigned char> shared_secret(shared_secret_len);
@@ -119,19 +122,28 @@ public:
     std::vector<unsigned char> sign_message(const std::string& message) {
         // Sign the message using RSA to provide authenticity
         std::vector<unsigned char> message_bytes(message.begin(), message.end());
-        std::vector<unsigned char> signature(RSA_size(rsa_private_key));
+        std::vector<unsigned char> signature(EVP_PKEY_size(rsa_private_key));
 
-        unsigned int sig_len;
-        RSA_sign(NID_sha256, message_bytes.data(), message_bytes.size(), signature.data(), &sig_len, rsa_private_key);
+        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+        EVP_PKEY_CTX* pctx = NULL;
+        EVP_DigestSignInit(mdctx, &pctx, EVP_sha256(), NULL, rsa_private_key);
+        EVP_DigestSign(mdctx, signature.data(), &sig_len, message_bytes.data(), message_bytes.size());
+        EVP_MD_CTX_free(mdctx);
+
         signature.resize(sig_len);
-
         return signature;
     }
 
     bool verify_signature(const std::string& message, const std::vector<unsigned char>& signature) {
         // Verify the signature of a message using RSA
         std::vector<unsigned char> message_bytes(message.begin(), message.end());
-        int result = RSA_verify(NID_sha256, message_bytes.data(), message_bytes.size(), signature.data(), signature.size(), rsa_public_key);
+
+        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+        EVP_PKEY_CTX* pctx = NULL;
+        EVP_DigestVerifyInit(mdctx, &pctx, EVP_sha256(), NULL, rsa_public_key);
+        int result = EVP_DigestVerify(mdctx, signature.data(), signature.size(), message_bytes.data(), message_bytes.size());
+        EVP_MD_CTX_free(mdctx);
+
         return result == 1;
     }
 
@@ -221,22 +233,38 @@ public:
 
     std::vector<unsigned char> encrypt_symmetric_key() {
         // Encrypt AES key with RSA-4096
-        std::vector<unsigned char> encrypted_key(RSA_size(rsa_public_key));
-        int encrypted_key_len = RSA_public_encrypt(aes_key.size(), aes_key.data(), encrypted_key.data(), rsa_public_key, RSA_PKCS1_OAEP_PADDING);
-        if (encrypted_key_len == -1) {
+        std::vector<unsigned char> encrypted_key(EVP_PKEY_size(rsa_public_key));
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(rsa_public_key, NULL);
+        EVP_PKEY_encrypt_init(ctx);
+        EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING);
+
+        size_t encrypted_key_len;
+        EVP_PKEY_encrypt(ctx, encrypted_key.data(), &encrypted_key_len, aes_key.data(), aes_key.size());
+        EVP_PKEY_CTX_free(ctx);
+
+        if (encrypted_key_len == 0) {
             throw std::runtime_error("Failed to encrypt AES key");
         }
+
         encrypted_key.resize(encrypted_key_len);
         return encrypted_key;
     }
 
     std::vector<unsigned char> decrypt_symmetric_key(const std::vector<unsigned char>& encrypted_key) {
         // Decrypt AES key using RSA-4096
-        std::vector<unsigned char> decrypted_key(RSA_size(rsa_private_key));
-        int decrypted_key_len = RSA_private_decrypt(encrypted_key.size(), encrypted_key.data(), decrypted_key.data(), rsa_private_key, RSA_PKCS1_OAEP_PADDING);
-        if (decrypted_key_len == -1) {
+        std::vector<unsigned char> decrypted_key(EVP_PKEY_size(rsa_private_key));
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(rsa_private_key, NULL);
+        EVP_PKEY_decrypt_init(ctx);
+        EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING);
+
+        size_t decrypted_key_len;
+        EVP_PKEY_decrypt(ctx, decrypted_key.data(), &decrypted_key_len, encrypted_key.data(), encrypted_key.size());
+        EVP_PKEY_CTX_free(ctx);
+
+        if (decrypted_key_len == 0) {
             throw std::runtime_error("Failed to decrypt AES key");
         }
+
         decrypted_key.resize(decrypted_key_len);
         aes_key.assign(decrypted_key.begin(), decrypted_key.end());
         return aes_key;
@@ -280,7 +308,7 @@ public:
         EVP_CIPHER_CTX_free(ctx);
 
         decrypted_metadata.resize(decrypted_metadata_len);
-        
+
         Json::CharReaderBuilder reader;
         Json::Value metadata;
         std::string errs;
@@ -334,8 +362,8 @@ public:
     }
 
 private:
-    RSA* rsa_private_key;
-    RSA* rsa_public_key;
+    EVP_PKEY* rsa_private_key;
+    EVP_PKEY* rsa_public_key;
     EVP_PKEY* ephemeral_ecdh_private_key;
     EVP_PKEY* ephemeral_ecdh_public_key;
     std::vector<unsigned char> shared_secret;
@@ -344,7 +372,7 @@ private:
 
     std::string get_rsa_public_key() {
         BIO* bio = BIO_new(BIO_s_mem());
-        PEM_write_bio_RSAPublicKey(bio, rsa_public_key);
+        PEM_write_bio_PUBKEY(bio, rsa_public_key);
         char* pem_key = NULL;
         long pem_len = BIO_get_mem_data(bio, &pem_key);
         std::string pub_key(pem_key, pem_len);
@@ -365,13 +393,28 @@ void encrypt_file(const std::string& input_file, const std::string& output_file)
     in.close();
 
     // Encrypt the file content using the existing encrypt function
-    std::vector<unsigned char> encrypted_data = encrypt(file_content);
+    E2EESecurity security;
+    std::vector<unsigned char> encrypted_data = security.encrypt(file_content);
 
     // Write the encrypted data to the output file
     std::ofstream out(output_file, std::ios::binary);
     if (!out) {
         throw std::runtime_error("Failed to open output file for writing.");
+
+// Decrypt a file
+std::string decrypt_file(const std::string& input_file) {
+    // Read the encrypted file content
+    std::ifstream in(input_file, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Failed to open input file for reading.");
     }
+
+    std::vector<unsigned char> encrypted_data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    // Decrypt the data using the existing decrypt function
+    return decrypt(encrypted_data);
+}
     out.write(reinterpret_cast<const char*>(encrypted_data.data()), encrypted_data.size());
     out.close();
 }
