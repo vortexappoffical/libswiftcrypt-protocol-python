@@ -14,7 +14,6 @@
 #include <openssl/bio.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
-#include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/aes.h>
 #include <openssl/rand.h>
@@ -120,22 +119,21 @@ public:
         return aes_key; // Return the AES key directly
     }
 
-     std::vector<unsigned char> sign_message(const std::string& message) {
-    // Sign the message using RSA to provide authenticity
-    std::vector<unsigned char> message_bytes(message.begin(), message.end());
-    std::vector<unsigned char> signature(EVP_PKEY_size(rsa_private_key));
+    std::vector<unsigned char> sign_message(const std::string& message) {
+        // Sign the message using RSA to provide authenticity
+        std::vector<unsigned char> message_bytes(message.begin(), message.end());
+        std::vector<unsigned char> signature(EVP_PKEY_size(rsa_private_key));
 
-    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
-    EVP_PKEY_CTX* pctx = NULL;
-    size_t sig_len;  // Change this from unsigned int to size_t
-    EVP_DigestSignInit(mdctx, &pctx, EVP_sha256(), NULL, rsa_private_key);
-    EVP_DigestSign(mdctx, signature.data(), &sig_len, message_bytes.data(), message_bytes.size());
-    EVP_MD_CTX_free(mdctx);
+        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+        EVP_PKEY_CTX* pctx = NULL;
+        size_t sig_len;  // Change this from unsigned int to size_t
+        EVP_DigestSignInit(mdctx, &pctx, EVP_sha256(), NULL, rsa_private_key);
+        EVP_DigestSign(mdctx, signature.data(), &sig_len, message_bytes.data(), message_bytes.size());
+        EVP_MD_CTX_free(mdctx);
 
-    signature.resize(sig_len);
-    return signature;
-}
-
+        signature.resize(sig_len);
+        return signature;
+    }
 
     bool verify_signature(const std::string& message, const std::vector<unsigned char>& signature) {
         // Verify the signature of a message using RSA
