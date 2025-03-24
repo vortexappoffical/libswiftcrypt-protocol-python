@@ -20,6 +20,7 @@
 #include <openssl/rand.h>
 #include <zlib.h>
 #include <json/json.h>
+#include <fstream>
 
 // Constants
 const int AES_KEY_SIZE = 32; // 256-bit
@@ -351,3 +352,41 @@ private:
         return pub_key;
     }
 };
+
+// Encrypt a file
+void encrypt_file(const std::string& input_file, const std::string& output_file) {
+    // Read the file content
+    std::ifstream in(input_file, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Failed to open input file for reading.");
+    }
+
+    std::string file_content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    // Encrypt the file content using the existing encrypt function
+    std::vector<unsigned char> encrypted_data = encrypt(file_content);
+
+    // Write the encrypted data to the output file
+    std::ofstream out(output_file, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("Failed to open output file for writing.");
+    }
+    out.write(reinterpret_cast<const char*>(encrypted_data.data()), encrypted_data.size());
+    out.close();
+}
+
+// Decrypt a file
+std::string decrypt_file(const std::string& input_file) {
+    // Read the encrypted file content
+    std::ifstream in(input_file, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Failed to open input file for reading.");
+    }
+
+    std::vector<unsigned char> encrypted_data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    // Decrypt the data using the existing decrypt function
+    return decrypt(encrypted_data);
+}
